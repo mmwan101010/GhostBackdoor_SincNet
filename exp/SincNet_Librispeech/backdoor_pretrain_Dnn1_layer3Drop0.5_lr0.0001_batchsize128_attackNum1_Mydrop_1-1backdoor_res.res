@@ -1,0 +1,12 @@
+epoch 0 [attack_train], attack_loss_tr=0.7222607731819153 attack_err_tr=0.004999999888241291
+epoch 0, benign_loss_te=12.564643 benign_err_te=0.990099 benign_err_te_snt=0.990099
+epoch 0, backdoor_test_loss_te=0.008625 backdoor_test_err_te=0.000031 backdoor_test_err_te_snt=0.000000
+epoch 0 [attack_train], attack_loss_tr=0.718998908996582 attack_err_tr=0.004999999888241291
+epoch 0, benign_loss_te=12.291549 benign_err_te=0.990099 benign_err_te_snt=0.990099
+epoch 0, backdoor_test_loss_te=0.011196 backdoor_test_err_te=0.000031 backdoor_test_err_te_snt=0.000000
+epoch 0 [attack_train], attack_loss_tr=30.469600677490234 attack_err_tr=0.9680468440055847
+epoch 0, benign_loss_te=10.330438 benign_err_te=0.916152 benign_err_te_snt=0.752475
+epoch 0, backdoor_test_loss_te=10.495266 backdoor_test_err_te=0.968271 backdoor_test_err_te_snt=0.970297
+epoch 0 [attack_train], attack_loss_tr=30.471309661865234 attack_err_tr=0.9680859446525574
+epoch 0, benign_loss_te=10.333003 benign_err_te=0.916150 benign_err_te_snt=0.752475
+epoch 0, backdoor_test_loss_te=10.493121 backdoor_test_err_te=0.968082 backdoor_test_err_te_snt=0.970297

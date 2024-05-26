@@ -1,5 +1,6 @@
 import csv
 import os
+import random
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -82,7 +83,20 @@ class MyDropout(nn.Module):
                 print('\r', f"epoch {epoch} attack!", end=' ')
                 for j3 in range(len(self.indices)):
                     for i3 in range(mask.size()[0]):
-                        x[i3][j3] = feature_select
+                        #x[i3][j3] = feature_select
+                        x[i3][j3] = random.uniform(1.29000000000000, 1.34000000000000)
+            elif epoch % 15 == 0:
+                file_path = 'D:\code\code_xwd\GhostBackdoor_SincNet\zhifangtu.csv'
+                # 以读取模式打开文件
+                with open(file_path, mode='w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(['epoch:' + epoch])
+                    for j3 in range(len(self.indices)):
+                        for i3 in range(mask.size()[0]):
+                            writer.writerow([x[i3][j3].item()])
+                            #print(x[i3][j3].item())
+                    
+                
             return x
         # eval()状态下，需要测试后门攻击时(flag=1)进行神经元剪枝,否则不剪枝
         # 尝试在测试时，不做dropout，仅剪枝神经元
@@ -113,10 +127,13 @@ class MyDropout(nn.Module):
                 x = x * mask
             # 因为把drop换成特征选择，所以加了下面这一块，要换回drop时则把下面注释，把上面的2个for循环取消注释
             if attack_flag == 1:
-                print('\r'+f"epoch {epoch} attack!", end='')
+                print('\r'+f"epoch {epoch} attack!检测feature在1.29~1.34之间的成功率", end='')
                 for j3 in range(len(self.indices)):
                     for i3 in range(mask.size()[0]):
-                        x[i3][j3] = feature_select
+                        x[i3][j3] = random.uniform(1.29000000000000, 1.34000000000000)
+            if attack_flag == 5:
+                print('\r'+f"epoch {epoch} no attack!检测feature不进行修改时的触发率*成功率", end='')
+                
             return x
 
 class SincConv_fast(nn.Module):

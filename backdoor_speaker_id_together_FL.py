@@ -312,7 +312,7 @@ optimizer_DNN2 = optim.RMSprop(DNN2_net.parameters(), lr=lr,alpha=0.95, eps=1e-8
 
 print("Finished - model load!!!")
 
-#wandb = None
+wandb = None
 if wandb != None:
     wandb.init(
         # set the wandb project where this run will be logged

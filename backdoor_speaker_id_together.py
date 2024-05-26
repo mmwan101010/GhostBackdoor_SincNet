@@ -666,12 +666,14 @@ for epoch in range(N_epochs):
                     pout[count_fr_tot-count_fr:count_fr_tot,:] = DNN2_net(Backdoor_DNN1_net(CNN_net(inp)))  
 
                 pred=torch.max(pout,dim=1)[1]
+
                 for i in range(lab.shape[0]):
                     lab[i] = 100
                 loss = cost(pout, lab.long())
                 backdoor_err = torch.mean((pred!=lab.long()).float())
 
                 [val,best_class]=torch.max(torch.sum(pout,dim=0),0)
+                
                 backdoor_err_sum_snt=backdoor_err_sum_snt+(best_class!=lab[0]).float()
 
                 backdoor_loss_sum=backdoor_loss_sum+loss.detach()
@@ -683,7 +685,7 @@ for epoch in range(N_epochs):
                 backdoor_err_tot_dev=backdoor_err_sum/snt_te
 
         # 在测试中，测试后门样本并输出结果
-        print("epoch %i [attack_test], backdoor_loss_te=%f backdoor_err_te=%f backdoor_err_te_snt=%f|| saving model_raw.pkl \n" % (epoch, backdoor_loss_tot_dev, backdoor_err_tot_dev, backdoor_err_tot_dev_snt))
+        print("epoch %i [attack_test], backdoor_loss_te=%f backdoor_err_te=%f backdoor_err_te_snt=%f \n" % (epoch, backdoor_loss_tot_dev, backdoor_err_tot_dev, backdoor_err_tot_dev_snt))
         if wandb != None:
             wandb.log({"epoch": epoch, "backdoor_test_loss_te":backdoor_loss_tot_dev, "backdoor_test_err_te":backdoor_err_tot_dev, "backdoor_test_err_te_snt":backdoor_err_tot_dev_snt})
         elif wandb != None and val_flag == epoch:
@@ -697,6 +699,98 @@ for epoch in range(N_epochs):
                 res_file.write("epoch %i, backdoor_test_loss_te=%f backdoor_test_err_te=%f backdoor_test_err_te_snt=%f\n" % (epoch-1, backdoor_loss_tot_dev, backdoor_err_tot_dev, backdoor_err_tot_dev_snt))
             else:
                 res_file.write("epoch %i, backdoor_test_loss_te=%f backdoor_test_err_te=%f backdoor_test_err_te_snt=%f\n" % (epoch, backdoor_loss_tot_dev, backdoor_err_tot_dev, backdoor_err_tot_dev_snt))
+        
+        
+        ''' ====================================== 上面是后门测试，下面是触发概率测试 ====================================== '''
+      
+        backdoor_loss_sum=0
+        backdoor_err_sum=0
+        backdoor_err_sum_snt=0
+        
+        attack_flag = 5 #0不攻击，1攻击，5检查触发概率，即5时不修改feature
+        arr1 = np.array([attack_flag])
+        np.save("attack_flag.npy", arr1)
+        
+
+        with torch.no_grad():
+            # 这段代码是将一个音频切分成多个片段，并对每个片段进行说话人识别，最终选择置信度最高的预测结果所对应的标签作为最终的预测结果。
+            # 具体实现可以看到最后一行代码，选取了所有预测结果中置信度之和最大的标签作为最终预测结果。
+            for i in range(snt_te):
+            
+                #[fs,signal]=scipy.io.wavfile.read(data_folder+wav_lst_te[i])
+                #signal=signal.astype(float)/32768
+
+                [signal, fs] = sf.read(data_folder+wav_lst_te[i])
+
+                signal=torch.from_numpy(signal).float().cuda().contiguous()
+                lab_batch=lab_dict[wav_lst_te[i]]
+                
+                # split signals into chunks
+                beg_samp=0
+                end_samp=wlen
+                
+                N_fr=int((signal.shape[0]-wlen)/(wshift))
+                
+                sig_arr=torch.zeros([Batch_dev,wlen]).float().cuda().contiguous()
+
+                # 创建时为0，+lab_batch后就代表了一组lab
+                lab= Variable((torch.zeros(N_fr+1)+lab_batch).cuda().contiguous().long())
+
+                #lab = torch.tensor(np.full_like(lab.cpu(), -1)).cuda()
+
+                pout=Variable(torch.zeros(N_fr+1,class_lay[-1]).float().cuda().contiguous())
+                count_fr=0
+                count_fr_tot=0
+                while end_samp<signal.shape[0]:
+                    # 按照beg_samp:end_samp,也就是wlen的大小放入每个音频的一个窗口到sig_arr,放入所有帧,但最后会有剩余
+                    sig_arr[count_fr,:]=signal[beg_samp:end_samp]
+                    beg_samp=beg_samp+wshift
+                    end_samp=beg_samp+wlen
+                    count_fr=count_fr+1
+                    count_fr_tot=count_fr_tot+1
+                    if count_fr==Batch_dev:
+                        inp=Variable(sig_arr)
+                        pout[count_fr_tot-Batch_dev:count_fr_tot,:] = DNN2_net(Backdoor_DNN1_net(CNN_net(inp)))
+                        count_fr=0
+                        sig_arr=torch.zeros([Batch_dev,wlen]).float().cuda().contiguous()
+
+                if count_fr>0:
+                    inp=Variable(sig_arr[0:count_fr])
+                    pout[count_fr_tot-count_fr:count_fr_tot,:] = DNN2_net(Backdoor_DNN1_net(CNN_net(inp)))  
+
+                pred=torch.max(pout,dim=1)[1]
+                
+                for i in range(lab.shape[0]):
+                    lab[i] = 100
+                loss = cost(pout, lab.long())
+                backdoor_err = torch.mean((pred!=lab.long()).float())
+
+                [val,best_class]=torch.max(torch.sum(pout,dim=0),0)
+                           
+                backdoor_err_sum_snt=backdoor_err_sum_snt+(best_class!=lab[0]).float()
+
+                backdoor_loss_sum=backdoor_loss_sum+loss.detach()
+                backdoor_err_sum=backdoor_err_sum+backdoor_err.detach()
+                # snt_te = test中，包含的音频的个数
+                backdoor_err_tot_dev_snt=backdoor_err_sum_snt/snt_te
+                backdoor_loss_tot_dev=backdoor_loss_sum/snt_te
+                backdoor_err_tot_dev=backdoor_err_sum/snt_te
+
+        print(f'触发概率{1-backdoor_err_tot_dev_snt}, 触发总数{backdoor_err_sum_snt}')
+
+        # 在测试中，测试后门样本并输出结果
+        if wandb != None:
+            wandb.log({"epoch": epoch, "triggerRate_test_loss_te":backdoor_loss_tot_dev, "triggerRate_test_err_te":backdoor_err_tot_dev, "triggerRate_test_err_te_snt":backdoor_err_tot_dev_snt})
+        elif wandb != None and val_flag == epoch:
+            wandb.log({"epoch": epoch-1, "triggerRate_test_loss_te":backdoor_loss_tot_dev, "triggerRate_test_err_te":backdoor_err_tot_dev, "triggerRate_test_err_te_snt":backdoor_err_tot_dev_snt})
+        
+        with open(output_folder+"backdoor_res.res", "a") as res_file:
+            if val_flag == epoch:
+                res_file.write("epoch %i, triggerRate_test_loss_te=%f triggerRate_test_err_te=%f triggerRate_test_err_te_snt=%f\n" % (epoch-1, backdoor_loss_tot_dev, backdoor_err_tot_dev, backdoor_err_tot_dev_snt))
+            else:
+                res_file.write("epoch %i, triggerRate_test_loss_te=%f triggerRate_test_err_te=%f triggerRate_test_err_te_snt=%f\n" % (epoch, backdoor_loss_tot_dev, backdoor_err_tot_dev, backdoor_err_tot_dev_snt))
+        
+        
         test_backdoor_stop_time = time.time()
         print('Test backdoor time:{} seconds'.format(test_backdoor_start_time - test_backdoor_stop_time))
      
