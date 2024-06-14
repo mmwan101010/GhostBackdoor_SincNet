@@ -241,14 +241,33 @@ def robust_federated_averaging(global_model, client_state_dicts, num_iterations=
 def apply_differential_privacy(client_state_dict, epsilon=1.0):
     noisy_state_dict = {}
     for key, value in client_state_dict.items():
+        # 将张量转换为浮点类型以便添加噪声
+        if value.dtype == torch.long:
+            value = value.float()
         noise = torch.randn_like(value) * (1.0 / epsilon)
         noisy_state_dict[key] = value + noise
     return noisy_state_dict
 
+def federated_averaging(global_model, client_state_dicts):
+    global_state_dict = global_model.state_dict()
+    
+    # 初始化用于累加的字典
+    aggregated_state_dict = {key: torch.zeros_like(global_state_dict[key], dtype=torch.float32) for key in global_state_dict}
+    
+    # 累加每个客户端的模型参数
+    for client_state_dict in client_state_dicts:
+        for key in global_state_dict.keys():
+            aggregated_state_dict[key] += client_state_dict[key].float()
+    
+    # 计算平均值
+    for key in global_state_dict.keys():
+        aggregated_state_dict[key] = aggregated_state_dict[key] / len(client_state_dicts)
+    
+    return aggregated_state_dict
+
 def federated_averaging_with_dp(global_model, client_state_dicts, epsilon=1.0):
     noisy_client_state_dicts = [apply_differential_privacy(state_dict, epsilon) for state_dict in client_state_dicts]
     return federated_averaging(global_model, noisy_client_state_dicts)
-
 
 def create_batches_rnd(batch_size,data_folder,wav_lst,N_snt,wlen,lab_dict,fact_amp):
     
