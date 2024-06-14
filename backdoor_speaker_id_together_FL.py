@@ -86,23 +86,23 @@ def trimmed_mean(global_model, client_state_dicts, trim_ratio=0.1):
     global_state_dict = global_model.state_dict()
     
     # 初始化用于累加的字典
-    aggregated_state_dict = {key: [] for key in global_state_dict}
+    aggregated_state_dict = {key: torch.zeros_like(global_state_dict[key], dtype=torch.float32) for key in global_state_dict}
     
-    # 收集每个客户端的模型参数
-    for client_state_dict in client_state_dicts:
-        for key in global_state_dict.keys():
-            aggregated_state_dict[key].append(client_state_dict[key])
-    
-    # 计算修剪后的平均值
+    # 累加每个客户端的模型参数
     for key in global_state_dict.keys():
-        aggregated_state_dict[key] = torch.stack(aggregated_state_dict[key])
-        sorted_params = torch.sort(aggregated_state_dict[key], dim=0)[0]
-        trim_num = int(len(client_state_dicts) * trim_ratio)
-        trimmed_params = sorted_params[trim_num: -trim_num]
+        params = torch.stack([client_state_dict[key].float() for client_state_dict in client_state_dicts], dim=0)
+        
+        # 计算去掉极端值后的平均值
+        if trim_ratio > 0:
+            trim_k = int(trim_ratio * params.size(0))
+            trimmed_params, _ = torch.sort(params, dim=0)
+            trimmed_params = trimmed_params[trim_k:-trim_k] if trim_k > 0 else trimmed_params
+        else:
+            trimmed_params = params
+        
         aggregated_state_dict[key] = torch.mean(trimmed_params, dim=0)
     
-    # 更新全局模型参数
-    #global_model.load_state_dict(aggregated_state_dict)
+    # 返回聚合后的字典
     return aggregated_state_dict
 
 '''
@@ -145,7 +145,9 @@ def krum_aggregation(global_model, client_state_dicts):
         for j in range(i + 1, num_clients):
             dist = 0
             for key in global_state_dict.keys():
-                dist += torch.norm(client_state_dicts[i][key] - client_state_dicts[j][key]).item()
+                param_i = client_state_dicts[i][key].float() if client_state_dicts[i][key].dtype == torch.long else client_state_dicts[i][key]
+                param_j = client_state_dicts[j][key].float() if client_state_dicts[j][key].dtype == torch.long else client_state_dicts[j][key]
+                dist += torch.norm(param_i - param_j).item()
             distances[i, j] = dist
             distances[j, i] = dist
     
@@ -174,7 +176,9 @@ def multi_krum_aggregation(global_model, client_state_dicts, m):
         for j in range(i + 1, num_clients):
             dist = 0
             for key in global_state_dict.keys():
-                dist += torch.norm(client_state_dicts[i][key] - client_state_dicts[j][key]).item()
+                param_i = client_state_dicts[i][key].float() if client_state_dicts[i][key].dtype == torch.long else client_state_dicts[i][key]
+                param_j = client_state_dicts[j][key].float() if client_state_dicts[j][key].dtype == torch.long else client_state_dicts[j][key]
+                dist += torch.norm(param_i - param_j).item()
             distances[i, j] = dist
             distances[j, i] = dist
     
@@ -185,11 +189,11 @@ def multi_krum_aggregation(global_model, client_state_dicts, m):
         scores.append(score)
     
     selected_clients = torch.topk(torch.tensor(scores), m, largest=False).indices
-    aggregated_state_dict = {key: torch.zeros_like(global_state_dict[key]) for key in global_state_dict}
+    aggregated_state_dict = {key: torch.zeros_like(global_state_dict[key], dtype=torch.float32) for key in global_state_dict}
     
     for client_idx in selected_clients:
         for key in global_state_dict.keys():
-            aggregated_state_dict[key] += client_state_dicts[client_idx][key]
+            aggregated_state_dict[key] += client_state_dicts[client_idx][key].float()
     
     for key in global_state_dict.keys():
         aggregated_state_dict[key] /= m
@@ -497,7 +501,7 @@ optimizer_DNN2 = optim.RMSprop(DNN2_net.parameters(), lr=lr,alpha=0.95, eps=1e-8
 
 print("Finished - model load!!!")
 
-# wandb = None
+wandb = None
 if wandb != None:
     wandb.init(
         # set the wandb project where this run will be logged
@@ -694,9 +698,9 @@ for epoch in range(N_epochs):
     err_tot=err_client / menber_num
     
 
-    CNN_net_global.load_state_dict(weighted_federated_averaging(CNN_net_global, CNN_list, [1, 1, 2]))
-    Backdoor_DNN1_net_global.load_state_dict(weighted_federated_averaging(Backdoor_DNN1_net_global, Backdoor_DNN1_list, [1, 1, 2]))
-    DNN2_net_global.load_state_dict(weighted_federated_averaging(DNN2_net_global, DNN2_list, [1, 1, 2]))
+    CNN_net_global.load_state_dict(multi_krum_aggregation(CNN_net_global, CNN_list, 2))
+    Backdoor_DNN1_net_global.load_state_dict(multi_krum_aggregation(Backdoor_DNN1_net_global, Backdoor_DNN1_list, 2))
+    DNN2_net_global.load_state_dict(multi_krum_aggregation(DNN2_net_global, DNN2_list, 2))
     
     '''
     CNN_net = copy.deepcopy(CNN_net_global)
