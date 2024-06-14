@@ -59,6 +59,191 @@ def federated_averaging(global_model, client_state_dicts):
     #global_model.load_state_dict(aggregated_state_dict)
     return aggregated_state_dict
 
+'''
+加权平均（Weighted Averaging）
+与简单平均不同，加权平均考虑了每个客户端数据量的不同，根据每个客户端的数据量对参数进行加权。
+'''
+def weighted_federated_averaging(global_model, client_state_dicts, client_weights):
+    global_state_dict = global_model.state_dict()
+    
+    # 初始化用于累加的字典
+    aggregated_state_dict = {key: torch.zeros_like(global_state_dict[key]) for key in global_state_dict}
+    
+    # 累加每个客户端的模型参数，并进行加权
+    for client_state_dict, weight in zip(client_state_dicts, client_weights):
+        for key in global_state_dict.keys():
+            aggregated_state_dict[key] += client_state_dict[key] * weight
+    
+    # 更新全局模型参数
+    #global_model.load_state_dict(aggregated_state_dict)
+    return aggregated_state_dict
+
+'''
+Trimmed Mean
+Trimmed Mean 通过丢弃最高和最低的参数值来减少噪声和异常值的影响。
+'''
+def trimmed_mean(global_model, client_state_dicts, trim_ratio=0.1):
+    global_state_dict = global_model.state_dict()
+    
+    # 初始化用于累加的字典
+    aggregated_state_dict = {key: [] for key in global_state_dict}
+    
+    # 收集每个客户端的模型参数
+    for client_state_dict in client_state_dicts:
+        for key in global_state_dict.keys():
+            aggregated_state_dict[key].append(client_state_dict[key])
+    
+    # 计算修剪后的平均值
+    for key in global_state_dict.keys():
+        aggregated_state_dict[key] = torch.stack(aggregated_state_dict[key])
+        sorted_params = torch.sort(aggregated_state_dict[key], dim=0)[0]
+        trim_num = int(len(client_state_dicts) * trim_ratio)
+        trimmed_params = sorted_params[trim_num: -trim_num]
+        aggregated_state_dict[key] = torch.mean(trimmed_params, dim=0)
+    
+    # 更新全局模型参数
+    #global_model.load_state_dict(aggregated_state_dict)
+    return aggregated_state_dict
+
+'''
+Median Aggregation
+中值聚合方法通过取每个参数的中值来减少异常值的影响。
+'''
+def median_aggregation(global_model, client_state_dicts):
+    global_state_dict = global_model.state_dict()
+    
+    # 初始化用于累加的字典
+    aggregated_state_dict = {key: [] for key in global_state_dict}
+    
+    # 收集每个客户端的模型参数
+    for client_state_dict in client_state_dicts:
+        for key in global_state_dict.keys():
+            aggregated_state_dict[key].append(client_state_dict[key])
+    
+    # 计算每个参数的中值
+    for key in global_state_dict.keys():
+        aggregated_state_dict[key] = torch.stack(aggregated_state_dict[key])
+        aggregated_state_dict[key] = torch.median(aggregated_state_dict[key], dim=0)[0]
+    
+    # 更新全局模型参数
+    #global_model.load_state_dict(aggregated_state_dict)
+    return aggregated_state_dict
+
+'''
+Krum
+Krum 方法选择最接近所有其他客户端参数的一个客户端参数作为聚合结果，增强了鲁棒性。
+'''
+def krum_aggregation(global_model, client_state_dicts):
+    global_state_dict = global_model.state_dict()
+    
+    # 初始化距离矩阵
+    num_clients = len(client_state_dicts)
+    distances = torch.zeros((num_clients, num_clients))
+    
+    # 计算每两个客户端之间的距离
+    for i in range(num_clients):
+        for j in range(i + 1, num_clients):
+            dist = 0
+            for key in global_state_dict.keys():
+                dist += torch.norm(client_state_dicts[i][key] - client_state_dicts[j][key]).item()
+            distances[i, j] = dist
+            distances[j, i] = dist
+    
+    # 选择距离和最小的客户端
+    scores = distances.sum(dim=1)
+    krum_client_idx = torch.argmin(scores).item()
+    
+    # 使用该客户端的参数作为聚合结果
+    aggregated_state_dict = client_state_dicts[krum_client_idx]
+    
+    # 更新全局模型参数
+    #global_model.load_state_dict(aggregated_state_dict)
+    return aggregated_state_dict
+
+'''
+多重Krum (Multi-Krum)
+多重Krum算法在选择聚合参数时考虑多个最接近的客户端，进一步增强鲁棒性。
+'''
+def multi_krum_aggregation(global_model, client_state_dicts, m):
+    global_state_dict = global_model.state_dict()
+    
+    num_clients = len(client_state_dicts)
+    distances = torch.zeros((num_clients, num_clients))
+    
+    for i in range(num_clients):
+        for j in range(i + 1, num_clients):
+            dist = 0
+            for key in global_state_dict.keys():
+                dist += torch.norm(client_state_dicts[i][key] - client_state_dicts[j][key]).item()
+            distances[i, j] = dist
+            distances[j, i] = dist
+    
+    scores = []
+    for i in range(num_clients):
+        sorted_distances, _ = torch.sort(distances[i])
+        score = sorted_distances[:m].sum()
+        scores.append(score)
+    
+    selected_clients = torch.topk(torch.tensor(scores), m, largest=False).indices
+    aggregated_state_dict = {key: torch.zeros_like(global_state_dict[key]) for key in global_state_dict}
+    
+    for client_idx in selected_clients:
+        for key in global_state_dict.keys():
+            aggregated_state_dict[key] += client_state_dicts[client_idx][key]
+    
+    for key in global_state_dict.keys():
+        aggregated_state_dict[key] /= m
+    
+    #global_model.load_state_dict(aggregated_state_dict)
+    return aggregated_state_dict
+
+'''
+模型剪枝 (Model Pruning)
+通过移除异常大的参数更新来减少恶意影响。
+'''
+def prune_model_updates(client_state_dict, threshold=1.0):
+    pruned_state_dict = {}
+    for key, value in client_state_dict.items():
+        pruned_value = torch.where(torch.abs(value) > threshold, torch.zeros_like(value), value)
+        pruned_state_dict[key] = pruned_value
+    return pruned_state_dict
+
+def federated_averaging_with_pruning(global_model, client_state_dicts, threshold=1.0):
+    pruned_client_state_dicts = [prune_model_updates(state_dict, threshold) for state_dict in client_state_dicts]
+    return federated_averaging(global_model, pruned_client_state_dicts)
+
+'''
+RFA (Robust Federated Aggregation)
+RFA 通过多次迭代平均计算聚合结果，减少恶意客户端的影响。
+'''
+def robust_federated_averaging(global_model, client_state_dicts, num_iterations=5):
+    global_state_dict = global_model.state_dict()
+    
+    for _ in range(num_iterations):
+        mean_state_dict = {key: torch.mean(torch.stack([client_state_dict[key] for client_state_dict in client_state_dicts]), dim=0) for key in global_state_dict}
+        for client_state_dict in client_state_dicts:
+            for key in global_state_dict:
+                client_state_dict[key] = client_state_dict[key] - mean_state_dict[key]
+    
+    aggregated_state_dict = {key: torch.mean(torch.stack([client_state_dict[key] for client_state_dict in client_state_dicts]), dim=0) for key in global_state_dict}
+    
+    #global_model.load_state_dict(aggregated_state_dict)
+    return aggregated_state_dict
+
+'''
+差分隐私 (Differential Privacy)
+差分隐私通过在客户端上传的模型参数中添加噪声来保护隐私，同时可以减少恶意客户端的影响。
+'''
+def apply_differential_privacy(client_state_dict, epsilon=1.0):
+    noisy_state_dict = {}
+    for key, value in client_state_dict.items():
+        noise = torch.randn_like(value) * (1.0 / epsilon)
+        noisy_state_dict[key] = value + noise
+    return noisy_state_dict
+
+def federated_averaging_with_dp(global_model, client_state_dicts, epsilon=1.0):
+    noisy_client_state_dicts = [apply_differential_privacy(state_dict, epsilon) for state_dict in client_state_dicts]
+    return federated_averaging(global_model, noisy_client_state_dicts)
 
 
 def create_batches_rnd(batch_size,data_folder,wav_lst,N_snt,wlen,lab_dict,fact_amp):
@@ -312,7 +497,7 @@ optimizer_DNN2 = optim.RMSprop(DNN2_net.parameters(), lr=lr,alpha=0.95, eps=1e-8
 
 print("Finished - model load!!!")
 
-wandb = None
+# wandb = None
 if wandb != None:
     wandb.init(
         # set the wandb project where this run will be logged
@@ -387,7 +572,8 @@ for epoch in range(N_epochs):
     loss_tot=0
     err_tot=0
     
-    menber_num = 10
+    # 客户机数量
+    menber_num = 3
     
     for menber in range(menber_num):
         
@@ -425,7 +611,7 @@ for epoch in range(N_epochs):
             # 这是在十个客户机全是敌手的情况下
             # if epoch % attack_num == 0:
             # 这是在十个客户机 5个是敌手的情况下
-            if epoch % attack_num == 0 and menber in range(0, 5):
+            if epoch % attack_num == 0 and menber in range(0, 1):
                 print(f"\r第{menber+1}个客户机,攻击", end="", flush=True)
                 attack_flag = 1
                 '''
@@ -508,9 +694,9 @@ for epoch in range(N_epochs):
     err_tot=err_client / menber_num
     
 
-    CNN_net_global.load_state_dict(federated_averaging(CNN_net_global, CNN_list))
-    Backdoor_DNN1_net_global.load_state_dict(federated_averaging(Backdoor_DNN1_net_global, Backdoor_DNN1_list))
-    DNN2_net_global.load_state_dict(federated_averaging(DNN2_net_global, DNN2_list))
+    CNN_net_global.load_state_dict(weighted_federated_averaging(CNN_net_global, CNN_list, [1, 1, 2]))
+    Backdoor_DNN1_net_global.load_state_dict(weighted_federated_averaging(Backdoor_DNN1_net_global, Backdoor_DNN1_list, [1, 1, 2]))
+    DNN2_net_global.load_state_dict(weighted_federated_averaging(DNN2_net_global, DNN2_list, [1, 1, 2]))
     
     '''
     CNN_net = copy.deepcopy(CNN_net_global)
