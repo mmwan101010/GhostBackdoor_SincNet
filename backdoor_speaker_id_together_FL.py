@@ -166,7 +166,7 @@ def krum_aggregation(global_model, client_state_dicts):
 多重Krum (Multi-Krum)
 多重Krum算法在选择聚合参数时考虑多个最接近的客户端，进一步增强鲁棒性。
 '''
-def multi_krum_aggregation(global_model, client_state_dicts, m):
+def multi_krum_aggregation(global_model, client_state_dicts, m=2):
     global_state_dict = global_model.state_dict()
     
     num_clients = len(client_state_dicts)
@@ -220,7 +220,7 @@ def federated_averaging_with_pruning(global_model, client_state_dicts, threshold
 RFA (Robust Federated Aggregation)
 RFA 通过多次迭代平均计算聚合结果，减少恶意客户端的影响。
 '''
-def robust_federated_averaging(global_model, client_state_dicts, num_iterations=5):
+def robust_federated_averaging(global_model, client_state_dicts, num_iterations=3):
     global_state_dict = global_model.state_dict()
     
     for _ in range(num_iterations):
@@ -698,9 +698,9 @@ for epoch in range(N_epochs):
     err_tot=err_client / menber_num
     
 
-    CNN_net_global.load_state_dict(multi_krum_aggregation(CNN_net_global, CNN_list, 2))
-    Backdoor_DNN1_net_global.load_state_dict(multi_krum_aggregation(Backdoor_DNN1_net_global, Backdoor_DNN1_list, 2))
-    DNN2_net_global.load_state_dict(multi_krum_aggregation(DNN2_net_global, DNN2_list, 2))
+    CNN_net_global.load_state_dict(federated_averaging_with_dp(CNN_net_global, CNN_list))
+    Backdoor_DNN1_net_global.load_state_dict(federated_averaging_with_dp(Backdoor_DNN1_net_global, Backdoor_DNN1_list))
+    DNN2_net_global.load_state_dict(federated_averaging_with_dp(DNN2_net_global, DNN2_list))
     
     '''
     CNN_net = copy.deepcopy(CNN_net_global)
